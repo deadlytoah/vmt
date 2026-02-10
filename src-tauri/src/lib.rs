@@ -48,8 +48,7 @@ async fn stop_recording(
         v.clear();
         cursor.into_inner()
     };
-
-    let api_key = env::var("OPENAI_API_KEY").map_err(|_| VMTError::TranscriptError {
+    let api_key = env::var("OPENAI_API_KEY").map_err(|_| VMTError::Transcript {
         message: "API key not set in environment".into(),
     })?;
     let transcriber = WhisperService::new(&api_key);

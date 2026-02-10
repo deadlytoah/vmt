@@ -34,14 +34,14 @@ impl Transcriber for WhisperService {
         let transcription: serde_json::Value = response.json().await?;
 
         if !transcription["error"].is_null() {
-            Err(VMTError::TranscriptError {
+            Err(VMTError::Transcript {
                 message: transcription["error"]["message"].to_string(),
             })
         } else {
             transcription["text"]
                 .as_str()
                 .map(str::to_owned)
-                .ok_or_else(|| VMTError::TranscriptError {
+                .ok_or_else(|| VMTError::Transcript {
                     message: "data format error".into(),
                 })
         }

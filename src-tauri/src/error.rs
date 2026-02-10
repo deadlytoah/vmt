@@ -1,18 +1,18 @@
 #[derive(Debug, thiserror::Error, serde::Serialize)]
 pub enum VMTError {
     #[error("failed to play stream: {message}")]
-    PlayStreamError { message: String },
+    PlayStream { message: String },
     #[error("failed to stop stream: {message}")]
-    StopStreamError { message: String },
+    StopStream { message: String },
     #[error("failed to encode audio: {message}")]
-    HoundError { message: String },
+    Hound { message: String },
     #[error("failed to transcript stream: {message}")]
-    TranscriptError { message: String },
+    Transcript { message: String },
 }
 
 impl From<cpal::PlayStreamError> for VMTError {
     fn from(source: cpal::PlayStreamError) -> Self {
-        Self::PlayStreamError {
+        Self::PlayStream {
             message: source.to_string(),
         }
     }
@@ -20,7 +20,7 @@ impl From<cpal::PlayStreamError> for VMTError {
 
 impl From<cpal::PauseStreamError> for VMTError {
     fn from(source: cpal::PauseStreamError) -> Self {
-        Self::StopStreamError {
+        Self::StopStream {
             message: source.to_string(),
         }
     }
@@ -28,7 +28,7 @@ impl From<cpal::PauseStreamError> for VMTError {
 
 impl From<hound::Error> for VMTError {
     fn from(source: hound::Error) -> Self {
-        Self::HoundError {
+        Self::Hound {
             message: source.to_string(),
         }
     }
@@ -36,7 +36,7 @@ impl From<hound::Error> for VMTError {
 
 impl From<reqwest::Error> for VMTError {
     fn from(source: reqwest::Error) -> Self {
-        Self::TranscriptError {
+        Self::Transcript {
             message: source.to_string(),
         }
     }

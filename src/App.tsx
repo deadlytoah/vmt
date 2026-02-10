@@ -43,13 +43,13 @@ function App() {
       setTranscript(await invoke("stop_recording", {}));
       resetUI();
     } catch (e) {
-      if ("StopStreamError" in e) {
-        setError(`Error stopping audio: ${e["StopStreamError"]["message"]}`);
-      } else if ("HoundError" in e) {
-        setError(`Error encoding audio: ${e["HoundError"]["message"]}`);
+      if ("StopStream" in e) {
+        setError(`Error stopping audio: ${e["StopStream"]["message"]}`);
+      } else if ("Hound" in e) {
+        setError(`Error encoding audio: ${e["Hound"]["message"]}`);
         resetUI();
-      } else if ("TranscriptError" in e) {
-        setError(`Transcription error: ${e["TranscriptError"]["message"]}`);
+      } else if ("Transcript" in e) {
+        setError(`Transcription error: ${e["Transcript"]["message"]}`);
         resetUI();
       }
     }      
