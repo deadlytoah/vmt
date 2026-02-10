@@ -4,6 +4,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 
+const MIN_BUFSIZE: usize = 1024 * 1024 * 4;
+
 #[derive(Debug, thiserror::Error, serde::Serialize)]
 enum VMTError {
     #[error("failed to play stream: {message}")]
@@ -85,7 +87,7 @@ pub fn run() {
                 .default_input_device()
                 .ok_or("no input devices found")?;
             let config = device.default_input_config()?.config();
-            let buffer = Arc::new(Mutex::new(Vec::<f32>::new()));
+            let buffer = Arc::new(Mutex::new(Vec::<f32>::with_capacity(MIN_BUFSIZE)));
             let v = Arc::clone(&buffer);
             let stream = device.build_input_stream(
                 &config,
