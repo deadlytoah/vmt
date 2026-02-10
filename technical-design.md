@@ -3,7 +3,7 @@
 ## Stack
 - **Desktop shell:** Tauri v2
 - **Backend language:** Rust
-- **Frontend framework:** Next.js (TypeScript)
+- **Frontend framework:** React (TypeScript), Vite
 - **Audio capture:** `cpal` crate for cross-platform microphone input
 - **Audio encoding:** Encode captured PCM samples to WAV in Rust
 - **Transcription:** `Transcriber` trait with OpenAI Whisper API as the default implementation

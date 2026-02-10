@@ -1,7 +1,24 @@
-# Tauri + React + Typescript
+# Voice Memo Transcriber
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+Desktop app that captures microphone audio and transcribes it using the OpenAI Whisper API.
 
-## Recommended IDE Setup
+Built with Tauri v2, Rust, and React (TypeScript).
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+## Prerequisites
+
+- [Node.js](https://nodejs.org/)
+- [Rust](https://www.rust-lang.org/tools/install)
+- [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/)
+
+## Development
+
+```bash
+npm install
+npm run tauri dev
+```
+
+## Build
+
+```bash
+npm run tauri build
+```
