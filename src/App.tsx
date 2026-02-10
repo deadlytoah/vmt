@@ -27,12 +27,7 @@ function App() {
   }
 
   async function stopRecording() {
-    setInformation("Transcript will appear when ready.");
-    setTranscript("");
-    try {
-      setTranscript(await invoke("stop_recording", {}));
-      // TODO: handle error and display error message.
-    } finally {
+    function resetUI() {
       setInformation("");
       setIsRecording(false);
       if (timer != null) {
@@ -41,6 +36,23 @@ function App() {
         setElapsed("00:00");
       }
     }
+
+    setInformation("Transcript will appear when ready.");
+    setTranscript("");
+    try {
+      setTranscript(await invoke("stop_recording", {}));
+      resetUI();
+    } catch (e) {
+      if ("StopStreamError" in e) {
+        setError(`Error stopping audio: ${e["StopStreamError"]["message"]}`);
+      } else if ("HoundError" in e) {
+        setError(`Error encoding audio: ${e["HoundError"]["message"]}`);
+        resetUI();
+      } else if ("TranscriptError" in e) {
+        setError(`Transcription error: ${e["TranscriptError"]["message"]}`);
+        resetUI();
+      }
+    }      
   }
 
   useEffect(() => {

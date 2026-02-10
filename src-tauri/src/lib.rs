@@ -1,5 +1,7 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::StreamError;
+use std::env;
+use std::io::Cursor;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
@@ -42,6 +44,14 @@ impl From<hound::Error> for VMTError {
     }
 }
 
+impl From<reqwest::Error> for VMTError {
+    fn from(source: reqwest::Error) -> Self {
+        Self::TranscriptError {
+            message: source.to_string(),
+        }
+    }
+}
+
 fn cpal_config_to_hound(source: &cpal::StreamConfig) -> hound::WavSpec {
     hound::WavSpec {
         channels: source.channels,
@@ -64,17 +74,49 @@ async fn stop_recording(
     buffer: tauri::State<'_, Arc<Mutex<Vec<f32>>>>,
 ) -> Result<String, VMTError> {
     stream.pause()?;
-    {
-        let mut writer = hound::WavWriter::create("../voice.wav", cpal_config_to_hound(&config))?;
+
+    let wav: Vec<u8> = {
+        let mut cursor = Cursor::new(Vec::with_capacity(MIN_BUFSIZE));
+        let mut writer = hound::WavWriter::new(&mut cursor, cpal_config_to_hound(&config))?;
         let mut v = buffer.lock().expect("failed locking mutex");
         for b in v.iter() {
             writer.write_sample((b.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)?;
         }
         writer.finalize()?;
         v.clear();
+        cursor.into_inner()
+    };
+
+    let api_key = env::var("OPENAI_API_KEY").map_err(|_| VMTError::TranscriptError {
+        message: "API key not set in environment".into(),
+    })?;
+    let client = reqwest::Client::new();
+    let multipart = reqwest::multipart::Part::bytes(wav)
+        .file_name("memo.wav")
+        .mime_str("audio/wav")?;
+    let form = reqwest::multipart::Form::new()
+        .text("model", "whisper-1")
+        .part("file", multipart);
+    let response = client
+        .post("https://api.openai.com/v1/audio/transcriptions")
+        .header("Authorization", format!("Bearer {}", api_key))
+        .multipart(form)
+        .send()
+        .await?;
+    let transcription: serde_json::Value = response.json().await?;
+
+    if !transcription["error"].is_null() {
+        Err(VMTError::TranscriptError {
+            message: transcription["error"]["message"].to_string(),
+        })
+    } else {
+        transcription["text"]
+            .as_str()
+            .map(str::to_owned)
+            .ok_or_else(|| VMTError::TranscriptError {
+                message: "data format error".into(),
+            })
     }
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    Ok("transcript".to_owned())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
