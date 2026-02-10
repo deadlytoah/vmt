@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import "./App.css";
 
 function App() {
@@ -8,6 +9,7 @@ function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [timer, setTimer] = useState<ReturnType<typeof setInterval> | null>(null);
   const [information, setInformation] = useState("Press Record to begin");
+  const [error, setError] = useState("");
 
   function updateTick(startTime: number) {
     const now = Math.floor((Date.now() - startTime) / 1000);
@@ -41,6 +43,13 @@ function App() {
     }
   }
 
+  useEffect(() => {
+    const unlisten = listen<string>("recording-error", (event) => {
+      setError(`Error: ${event.payload}. Please restart the client.`);
+    });
+    return () => { unlisten.then(f => f()); };
+  }, []);
+
   return (
     <main className="container">
       <form
@@ -60,6 +69,7 @@ function App() {
         </section>
       </form>
       <section className="transcript-pane">
+        <p className="error">{error}</p>
         <p className="information">{information}</p>
         <p className="transcript-text">{transcript}</p>
       </section>

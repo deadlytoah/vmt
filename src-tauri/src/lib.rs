@@ -2,7 +2,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::StreamError;
 use std::sync::Arc;
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 #[derive(Debug, thiserror::Error, serde::Serialize)]
 enum VMTError {
@@ -75,12 +75,11 @@ async fn stop_recording(
     Ok("transcript".to_owned())
 }
 
-fn handle_error(err: StreamError) {}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
+            let app_handle = app.handle().clone();
             let host = cpal::default_host();
             let device = host
                 .default_input_device()
@@ -93,7 +92,13 @@ pub fn run() {
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
                     v.lock().expect("mutex lock").extend(data);
                 },
-                handle_error,
+                move |err: StreamError| {
+                    let _ = app_handle
+                        .emit("recording-error", err.to_string())
+                        .inspect_err(|e| {
+                            eprintln!("{}", e);
+                        });
+                },
                 None,
             )?;
             // start with a paused stream

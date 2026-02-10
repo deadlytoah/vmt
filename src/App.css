@@ -116,6 +116,12 @@ button {
   white-space: pre-wrap;
 }
 
+.error {
+  margin: 0;
+  color: #d93025;
+  text-align: center;
+}
+
 .information {
   margin: 0;
   color: #999;
