@@ -17,7 +17,7 @@
 ## V1 Flow
 1. User clicks Record — Tauri command starts `cpal` audio capture, buffering PCM in memory.
 2. User clicks Stop — Rust encodes buffer to WAV, sends it to Whisper API.
-3. Whisper returns transcript text — Rust passes it to frontend via Tauri event.
+3. Whisper returns transcript text — Rust returns it as the `stop_recording` command response. (Swap to Tauri event for streaming scope.)
 4. Frontend displays the transcript.
 
 ## Remaining

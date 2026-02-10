@@ -1,49 +1,68 @@
 import { useState } from "react";
-import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+  const [elapsed, setElapsed] = useState("00:00");
+  const [transcript, setTranscript] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
+  const [timer, setTimer] = useState<ReturnType<typeof setInterval> | null>(null);
+  const [information, setInformation] = useState("Press Record to begin");
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
+  function updateTick(startTime: number) {
+    const now = Math.floor((Date.now() - startTime) / 1000);
+    const secs = now % 60;
+    const mins = Math.floor(now / 60);
+    setElapsed(`${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`);
+  }
+
+  async function startRecording() {
+    await invoke("start_recording", {});
+    setInformation("Recording in progress.");
+    setTranscript("");
+    setIsRecording(true);
+    setTimer(setInterval(updateTick, 200, Date.now()));
+  }
+
+  async function stopRecording() {
+    setInformation("Transcript will appear when ready.");
+    setTranscript("");
+    try {
+      setTranscript(await invoke("stop_recording", {}));
+      // TODO: handle error and display error message.
+    } finally {
+      setInformation("");
+      setIsRecording(false);
+      if (timer != null) {
+        clearInterval(timer);
+        setTimer(null);
+        setElapsed("00:00");
+      }
+    }
   }
 
   return (
     <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
       <form
         className="row"
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
-          greet();
+          if (isRecording) {
+            await stopRecording();
+          } else {
+            await startRecording();
+          }
         }}
       >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
+        <section className="controls">
+          <button className="record-btn" type="submit">{isRecording ? "Stop" : "Record"}</button>
+          <span className="elapsed">{elapsed}</span>
+        </section>
       </form>
-      <p>{greetMsg}</p>
+      <section className="transcript-pane">
+        <p className="information">{information}</p>
+        <p className="transcript-text">{transcript}</p>
+      </section>
     </main>
   );
 }
