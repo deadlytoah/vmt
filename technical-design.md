@@ -20,6 +20,11 @@
 3. Whisper returns transcript text — Rust returns it as the `stop_recording` command response. (Swap to Tauri event for streaming scope.)
 4. Frontend displays the transcript.
 
+## Error Handling (V1)
+- The `cpal` error callback emits a Tauri event to the frontend.
+- The frontend displays an error message and asks the user to restart the app.
+- No automatic recovery or partial-transcription salvage in V1.
+
 ## Remaining
 - Save transcript to local file via Tauri command.
 - Streaming transcription (chunked audio while recording).

@@ -14,6 +14,9 @@ Desktop app that captures microphone audio and transcribes it.
 ## UI Design
 Top-down split layout. Top half: a prominent record/stop button with a live elapsed-time counter. Bottom half: a scrollable transcript pane that populates after transcription completes. Extends naturally to streaming live text, in-place editing, and a sidebar for memo history.
 
+## Error Handling (V1)
+- If the audio stream encounters an error during recording, display an error message and ask the user to restart the app.
+
 ## Remaining Scope
 - Save the transcript to a local file.
 - In-app transcript editing.
