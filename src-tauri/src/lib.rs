@@ -1,6 +1,8 @@
 mod error;
+mod transcribe;
 
 use crate::error::VMTError;
+use crate::transcribe::{Transcriber, WhisperService};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::StreamError;
@@ -50,33 +52,8 @@ async fn stop_recording(
     let api_key = env::var("OPENAI_API_KEY").map_err(|_| VMTError::TranscriptError {
         message: "API key not set in environment".into(),
     })?;
-    let client = reqwest::Client::new();
-    let multipart = reqwest::multipart::Part::bytes(wav)
-        .file_name("memo.wav")
-        .mime_str("audio/wav")?;
-    let form = reqwest::multipart::Form::new()
-        .text("model", "whisper-1")
-        .part("file", multipart);
-    let response = client
-        .post("https://api.openai.com/v1/audio/transcriptions")
-        .header("Authorization", format!("Bearer {}", api_key))
-        .multipart(form)
-        .send()
-        .await?;
-    let transcription: serde_json::Value = response.json().await?;
-
-    if !transcription["error"].is_null() {
-        Err(VMTError::TranscriptError {
-            message: transcription["error"]["message"].to_string(),
-        })
-    } else {
-        transcription["text"]
-            .as_str()
-            .map(str::to_owned)
-            .ok_or_else(|| VMTError::TranscriptError {
-                message: "data format error".into(),
-            })
-    }
+    let transcriber = WhisperService::new(&api_key);
+    transcriber.transcribe(wav).await
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
