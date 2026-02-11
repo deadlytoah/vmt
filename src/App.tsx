@@ -42,7 +42,7 @@ function App() {
     try {
       setTranscript(await invoke("stop_recording", {}));
       resetUI();
-    } catch (e) {
+    } catch (e: any) {
       if ("StopStream" in e) {
         setError(`Error stopping audio: ${e["StopStream"]["message"]}`);
       } else if ("Hound" in e) {
