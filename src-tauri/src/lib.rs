@@ -8,7 +8,6 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::StreamError;
 use std::env;
 use std::io::Cursor;
-use std::sync::Arc;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 
@@ -33,19 +32,27 @@ fn start_recording(stream: tauri::State<'_, cpal::Stream>) -> Result<(), VMTErro
 async fn stop_recording(
     config: tauri::State<'_, cpal::StreamConfig>,
     stream: tauri::State<'_, cpal::Stream>,
-    buffer: tauri::State<'_, Arc<Mutex<Vec<f32>>>>,
+    rb: tauri::State<'_, Mutex<rtrb::Consumer<f32>>>,
 ) -> Result<String, VMTError> {
     stream.pause()?;
 
     let wav: Vec<u8> = {
         let mut cursor = Cursor::new(Vec::with_capacity(MIN_BUFSIZE));
         let mut writer = hound::WavWriter::new(&mut cursor, cpal_config_to_hound(&config))?;
-        let mut v = buffer.lock().expect("failed locking mutex");
-        for b in v.iter() {
-            writer.write_sample((b.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)?;
+        let mut v = rb.lock().expect("failed locking mutex");
+        let slots = v.slots();
+        let rc = v
+            .read_chunk(slots)
+            .expect("failed to read from ring buffer");
+        let (a, b) = rc.as_slices();
+        for c in a.iter() {
+            writer.write_sample((c.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)?;
+        }
+        for c in b.iter() {
+            writer.write_sample((c.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)?;
         }
         writer.finalize()?;
-        v.clear();
+        rc.commit_all();
         cursor.into_inner()
     };
     let api_key = env::var("OPENAI_API_KEY").map_err(|_| VMTError::Transcript {
@@ -65,12 +72,21 @@ pub fn run() {
                 .default_input_device()
                 .ok_or("no input devices found")?;
             let config = device.default_input_config()?.config();
-            let buffer = Arc::new(Mutex::new(Vec::<f32>::with_capacity(MIN_BUFSIZE)));
-            let v = Arc::clone(&buffer);
+            let (mut producer, consumer) = rtrb::RingBuffer::<f32>::new(MIN_BUFSIZE);
             let stream = device.build_input_stream(
                 &config,
-                move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    v.lock().expect("mutex lock").extend(data);
+                move |data: &[f32], _: &cpal::InputCallbackInfo| match producer
+                    .write_chunk(data.len())
+                {
+                    Ok(mut wc) => {
+                        let (a, b) = wc.as_mut_slices();
+                        a.copy_from_slice(&data[..a.len()]);
+                        b.copy_from_slice(&data[a.len()..]);
+                        wc.commit_all();
+                    }
+                    Err(_) => {
+                        // TODO: add some visibility for this error
+                    }
                 },
                 move |err: StreamError| {
                     let _ = app_handle
@@ -86,7 +102,7 @@ pub fn run() {
 
             app.manage(config);
             app.manage(stream);
-            app.manage(buffer);
+            app.manage(Mutex::new(consumer));
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())

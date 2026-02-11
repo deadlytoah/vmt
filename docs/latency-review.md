@@ -8,14 +8,23 @@ Issues identified in the V1 codebase that would require a rewrite for streaming 
 `Vec::<f32>::new()` started at capacity 0, causing repeated reallocations on the audio callback thread. Now pre-allocated with `with_capacity`.
 
 ## Mutex on audio thread
+**Status:** Fixed
+
 The cpal callback locks a `Mutex` shared with `stop_recording`. In V1 the stream is paused before encoding so there's no contention, but for streaming the audio thread would block whenever the consumer holds the lock.
 
-**Fix:** Replace `Arc<Mutex<Vec<f32>>>` with a lock-free ring buffer.
+**Fix:** Replace `Arc<Mutex<Vec<f32>>>` with a lock-free ring buffer (`rtrb`).
 
 ## Lock held during WAV encoding
+**Status:** Fixed
+
 `stop_recording` holds the mutex while iterating every sample and writing WAV output. For streaming, this is a long hold that blocks the audio callback.
 
 **Fix:** Decouple capture and encoding — consumer reads from a ring buffer independently.
+
+## Logging in audio callback
+The ring buffer write error path must avoid allocations and locks.
+
+**Fix:** Use an `AtomicBool` flag set in the callback, checked from a non-RT thread.
 
 ## HTTP client created per request
 `reqwest::Client::new()` is called inside every `transcribe()` invocation, discarding connection pooling and TLS session reuse. For streaming with many short chunks this adds a full TLS handshake per request.
