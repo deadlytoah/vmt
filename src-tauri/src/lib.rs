@@ -33,6 +33,7 @@ async fn stop_recording(
     config: tauri::State<'_, cpal::StreamConfig>,
     stream: tauri::State<'_, cpal::Stream>,
     rb: tauri::State<'_, Mutex<rtrb::Consumer<f32>>>,
+    transcriber: tauri::State<'_, WhisperService>,
 ) -> Result<String, VMTError> {
     stream.pause()?;
 
@@ -55,10 +56,6 @@ async fn stop_recording(
         rc.commit_all();
         cursor.into_inner()
     };
-    let api_key = env::var("OPENAI_API_KEY").map_err(|_| VMTError::Transcript {
-        message: "API key not set in environment".into(),
-    })?;
-    let transcriber = WhisperService::new(&api_key);
     transcriber.transcribe(wav).await
 }
 
@@ -100,9 +97,15 @@ pub fn run() {
             // start with a paused stream
             stream.pause()?;
 
+            let api_key = env::var("OPENAI_API_KEY").map_err(|_| VMTError::Transcript {
+                message: "API key not set in environment".into(),
+            })?;
+            let transcriber = WhisperService::new(&api_key);
+
             app.manage(config);
             app.manage(stream);
             app.manage(Mutex::new(consumer));
+            app.manage(transcriber);
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())

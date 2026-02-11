@@ -14,7 +14,7 @@
 - [ ] Implement frame-aligned consumer: read fixed-size frames, commit immediately
 - [ ] Accumulate frames into chunk buffer, flush on hangover expiry
 - [ ] Encode accumulated chunk to WAV in memory
-- [ ] Create reqwest client once in setup, store as managed state
+- [x] Create reqwest client once in setup, store as managed state
 - [ ] Send chunk to Whisper REST API
 - [ ] On stop, flush remaining audio in ring buffer as a final chunk
 

@@ -6,26 +6,28 @@ pub trait Transcriber {
 
 pub struct WhisperService {
     api_key: String,
+    client: reqwest::Client,
 }
 
 impl WhisperService {
     pub fn new(api_key: &str) -> Self {
         WhisperService {
             api_key: api_key.to_owned(),
+            client: reqwest::Client::new(),
         }
     }
 }
 
 impl Transcriber for WhisperService {
     async fn transcribe(&self, buffer: Vec<u8>) -> Result<String, VMTError> {
-        let client = reqwest::Client::new();
         let multipart = reqwest::multipart::Part::bytes(buffer)
             .file_name("memo.wav")
             .mime_str("audio/wav")?;
         let form = reqwest::multipart::Form::new()
             .text("model", "whisper-1")
             .part("file", multipart);
-        let response = client
+        let response = self
+            .client
             .post("https://api.openai.com/v1/audio/transcriptions")
             .header("Authorization", format!("Bearer {}", self.api_key))
             .multipart(form)
