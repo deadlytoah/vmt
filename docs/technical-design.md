@@ -58,9 +58,15 @@ frontend listens and appends text incrementally.
 4. Frontend appends each chunk to the transcript pane.
 5. User clicks Stop — consumer flushes remaining accumulator, transcribes final chunk.
 
+### Deferred to Post-V2
+- **Latch-up prevention** — slow unconditional noise floor decay during speech frames. V2 targets quiet-room use where latch-up is unlikely.
+- **Max speech duration cap** — force noise floor recalibration after ~30s continuous speech. Related to latch-up; defer together.
+- **Minimum chunk size policy** — natural speech pauses produce reasonable chunks; revisit if short utterances cause excessive API calls.
+- **Prompt conditioning** — pass previous transcript tail as Whisper's `prompt` parameter (max 224 tokens) for cross-chunk continuity. Optimization, not required for core streaming.
+
 ### Risks
 - Lock-free ring buffer correctness — mitigated by using `rtrb`, a proven real-time audio crate.
-- Chunk boundary artefacts — energy-threshold VAD reduces risk; prompt conditioning (passing the previous transcript tail as Whisper's `prompt` parameter, max 224 tokens) further improves continuity.
+- Chunk boundary artefacts — energy-threshold VAD reduces risk; prompt conditioning can further improve continuity post-V2.
 - Network latency variance — slow API responses could cause chunks to back up. Need backpressure or bounded concurrency.
 
 ## Remaining
