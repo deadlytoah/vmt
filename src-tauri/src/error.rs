@@ -8,6 +8,8 @@ pub enum VMTError {
     Hound { message: String },
     #[error("failed to transcript stream: {message}")]
     Transcript { message: String },
+    #[error("failed ring buffer chunk operation: {message}")]
+    RtrbChunk { message: String },
 }
 
 impl From<cpal::PlayStreamError> for VMTError {
@@ -37,6 +39,14 @@ impl From<hound::Error> for VMTError {
 impl From<reqwest::Error> for VMTError {
     fn from(source: reqwest::Error) -> Self {
         Self::Transcript {
+            message: source.to_string(),
+        }
+    }
+}
+
+impl From<rtrb::chunks::ChunkError> for VMTError {
+    fn from(source: rtrb::chunks::ChunkError) -> Self {
+        Self::RtrbChunk {
             message: source.to_string(),
         }
     }

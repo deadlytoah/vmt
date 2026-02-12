@@ -8,10 +8,13 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::StreamError;
 use std::env;
 use std::io::Cursor;
-use std::sync::Mutex;
-use tauri::{Emitter, Manager};
+use std::sync::{Arc, Mutex};
+use tauri::{async_runtime::spawn, Emitter, Manager};
+use tokio::time::Duration;
 
+const FRAME_MS: f32 = 0.02;
 const MIN_BUFSIZE: usize = 1024 * 1024 * 4;
+const POLLING_INTERVAL: Duration = Duration::from_millis(20);
 
 fn cpal_config_to_hound(source: &cpal::StreamConfig) -> hound::WavSpec {
     hound::WavSpec {
@@ -22,29 +25,16 @@ fn cpal_config_to_hound(source: &cpal::StreamConfig) -> hound::WavSpec {
     }
 }
 
-#[tauri::command]
-fn start_recording(stream: tauri::State<'_, cpal::Stream>) -> Result<(), VMTError> {
-    stream.play()?;
-    Ok(())
-}
-
-#[tauri::command]
-async fn stop_recording(
-    config: tauri::State<'_, cpal::StreamConfig>,
-    stream: tauri::State<'_, cpal::Stream>,
-    rb: tauri::State<'_, Mutex<rtrb::Consumer<f32>>>,
-    transcriber: tauri::State<'_, WhisperService>,
+async fn transcribe_frame(
+    config: &cpal::StreamConfig,
+    frame_size: usize,
+    consumer: &mut rtrb::Consumer<f32>,
+    transcriber: &WhisperService,
 ) -> Result<String, VMTError> {
-    stream.pause()?;
-
     let wav: Vec<u8> = {
         let mut cursor = Cursor::new(Vec::with_capacity(MIN_BUFSIZE));
-        let mut writer = hound::WavWriter::new(&mut cursor, cpal_config_to_hound(&config))?;
-        let mut v = rb.lock().expect("failed locking mutex");
-        let slots = v.slots();
-        let rc = v
-            .read_chunk(slots)
-            .expect("failed to read from ring buffer");
+        let mut writer = hound::WavWriter::new(&mut cursor, cpal_config_to_hound(config))?;
+        let rc = consumer.read_chunk(frame_size)?;
         let (a, b) = rc.as_slices();
         for c in a.iter() {
             writer.write_sample((c.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)?;
@@ -57,6 +47,22 @@ async fn stop_recording(
         cursor.into_inner()
     };
     transcriber.transcribe(wav).await
+}
+
+#[tauri::command]
+fn start_recording(stream: tauri::State<'_, cpal::Stream>) -> Result<(), VMTError> {
+    stream.play()?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn stop_recording(
+    stream: tauri::State<'_, cpal::Stream>,
+    transcriptions: tauri::State<'_, Arc<Mutex<Vec<String>>>>,
+) -> Result<String, VMTError> {
+    stream.pause()?;
+    let tv = transcriptions.lock().expect("failed to lock mutex");
+    Ok(tv.join(""))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -102,10 +108,43 @@ pub fn run() {
             })?;
             let transcriber = WhisperService::new(&api_key);
 
-            app.manage(config);
+            let frame_size = (FRAME_MS * (config.sample_rate as f32)) as usize;
+            let transcriptions = Arc::new(Mutex::new(Vec::with_capacity(MIN_BUFSIZE)));
+            let tv1 = Arc::clone(&transcriptions);
+            let config_cloned = config.clone();
+            let cs_task_handle = spawn(async move {
+                let mut consumer = consumer;
+                loop {
+                    if consumer.slots() < frame_size {
+                        tokio::time::sleep(POLLING_INTERVAL).await;
+                    } else {
+                        match transcribe_frame(
+                            &config_cloned,
+                            frame_size,
+                            &mut consumer,
+                            &transcriber,
+                        )
+                        .await
+                        {
+                            Ok(transcription) => tv1
+                                .lock()
+                                .expect("failed to lock mutex")
+                                .push(transcription),
+                            Err(e) => eprintln!("Error transcribing frame: {}", e),
+                        }
+                    }
+                }
+            });
+
+            // Tie the lifecycle of the background consumer task to
+            // that of the app.
+            spawn(async move {
+                let _ = cs_task_handle.await;
+                std::process::exit(1);
+            });
+
             app.manage(stream);
-            app.manage(Mutex::new(consumer));
-            app.manage(transcriber);
+            app.manage(transcriptions);
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())

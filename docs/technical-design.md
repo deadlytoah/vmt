@@ -35,16 +35,19 @@ Replace the batch record-then-transcribe flow with a pipeline that transcribes a
 **1. Lock-free ring buffer (`rtrb` crate)**
 Replace `Arc<Mutex<Vec<f32>>>` with an `rtrb` SPSC ring buffer. The
 cpal callback produces into one end; a Tokio consumer task reads from
-the other. Wait-free and zero-alloc on the hot path. `is_abandoned()`
-on both ends detects shutdown.
+the other. Wait-free and zero-alloc on the hot path.
 
 **2. Frame-aligned consumer with energy-threshold VAD**
-Consumer reads `frame_size` samples at a time from the ring buffer
-and commits each frame immediately. Adaptive RMS classifies each
+Consumer polls the ring buffer in a loop, sleeping briefly when empty
+to avoid starving the tokio thread pool. It reads `frame_size` samples
+at a time and commits each frame immediately. Adaptive RMS classifies each
 frame as speech or silence. Frames accumulate locally; a hangover
 timer (200–500 ms silence) triggers a flush for transcription. Noise
 floor seeded via ~300 ms mic capture at startup. Pure Rust, zero
-dependencies.
+dependencies. The consumer runs as a `tokio::spawn` task whose
+lifecycle is tied to the app — if it exits for any reason (success,
+error, or panic), the app terminates. The consumer must run for the
+app's entire lifetime; early exit indicates a logic bug or fatal error.
 
 **3. Tauri event streaming**
 Each chunk's transcript is emitted as a Tauri event
