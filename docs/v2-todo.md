@@ -4,12 +4,12 @@
 - [x] Create reqwest client once in setup, store as managed state
 - [x] Create the asynchronous consumer task
 - [x] Consumer creates fixed-size frame, sending it to Whisper
-- [ ] Accumulate frames into chunk buffer, flush at fixed time interval, multiple times, collecting partial transcripts
-- [ ] Collect partial transcripts for display at the end of recording
+- [x] Accumulate frames into chunk buffer, flush at fixed time interval, multiple times, collecting partial transcripts
+- [x] Collect partial transcripts for display at the end of recording
 
 ## Stage 2: Streaming UI updates
 - [ ] Emit partial transcript to frontend via Tauri events as each chunk completes
-- [ ] On stop, flush remaining audio in ring buffer as a final chunk
+- [x] On stop, flush remaining audio in ring buffer as a final chunk
 - [ ] Update transcript pane incrementally (append, not replace)
 - [ ] Auto-scroll to latest text
 

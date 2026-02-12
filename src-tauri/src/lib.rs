@@ -66,8 +66,12 @@ fn start_recording(stream: tauri::State<'_, cpal::Stream>) -> Result<(), VMTErro
 async fn stop_recording(
     stream: tauri::State<'_, cpal::Stream>,
     transcriptions: tauri::State<'_, Arc<Mutex<Vec<String>>>>,
+    flush_tx: tauri::State<'_, tokio::sync::mpsc::Sender<tokio::sync::oneshot::Sender<()>>>,
 ) -> Result<String, VMTError> {
     stream.pause()?;
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    let _ = flush_tx.send(reply_tx).await;
+    let _ = reply_rx.await;
     let mut tv = transcriptions.lock().expect("failed to lock mutex");
     let t = tv.join(" ");
     tv.clear();
@@ -122,6 +126,8 @@ pub fn run() {
             let mut ac: Vec<f32> = Vec::with_capacity(MIN_BUFSIZE);
             let tv_cloned = Arc::clone(&transcriptions);
             let config_cloned = config.clone();
+            let (flush_tx, mut flush_rx) =
+                tokio::sync::mpsc::channel::<tokio::sync::oneshot::Sender<()>>(1);
             let cs_task_handle = spawn(async move {
                 let mut consumer = consumer;
                 loop {
@@ -138,6 +144,21 @@ pub fn run() {
                             Err(e) => eprintln!("Error transcribing frame: {}", e),
                         }
                         ac.clear();
+                    } else if let Ok(reply_tx) = flush_rx.try_recv() {
+                        let frame_size = consumer.slots();
+                        if let Err(e) = read_rb(&mut ac, &mut consumer, frame_size) {
+                            eprintln!("Error reading from ring buffer: {}", e);
+                        } else {
+                            match transcribe_frame(&config_cloned, &transcriber, &ac).await {
+                                Ok(transcription) => tv_cloned
+                                    .lock()
+                                    .expect("failed to lock mutex")
+                                    .push(transcription),
+                                Err(e) => eprintln!("Error transcribing frame: {}", e),
+                            }
+                            ac.clear();
+                        }
+                        let _ = reply_tx.send(());
                     } else {
                         // Wait for more data in the sample for transcription
                     }
@@ -153,6 +174,7 @@ pub fn run() {
 
             app.manage(stream);
             app.manage(transcriptions);
+            app.manage(flush_tx);
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())
