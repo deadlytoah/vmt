@@ -13,6 +13,7 @@ use tauri::{async_runtime::spawn, Emitter, Manager};
 use tokio::time::Duration;
 
 const FRAME_MS: f32 = 0.02;
+const FRAME_COUNT: usize = 100;
 const MIN_BUFSIZE: usize = 1024 * 1024 * 4;
 const POLLING_INTERVAL: Duration = Duration::from_millis(20);
 
@@ -25,25 +26,31 @@ fn cpal_config_to_hound(source: &cpal::StreamConfig) -> hound::WavSpec {
     }
 }
 
+fn read_rb(
+    ac: &mut Vec<f32>,
+    consumer: &mut rtrb::Consumer<f32>,
+    frame_size: usize,
+) -> Result<(), VMTError> {
+    let rc = consumer.read_chunk(frame_size)?;
+    let (a, b) = rc.as_slices();
+    ac.extend(a);
+    ac.extend(b);
+    rc.commit_all();
+    Ok(())
+}
+
 async fn transcribe_frame(
     config: &cpal::StreamConfig,
-    frame_size: usize,
-    consumer: &mut rtrb::Consumer<f32>,
     transcriber: &WhisperService,
+    sample: &[f32],
 ) -> Result<String, VMTError> {
     let wav: Vec<u8> = {
         let mut cursor = Cursor::new(Vec::with_capacity(MIN_BUFSIZE));
         let mut writer = hound::WavWriter::new(&mut cursor, cpal_config_to_hound(config))?;
-        let rc = consumer.read_chunk(frame_size)?;
-        let (a, b) = rc.as_slices();
-        for c in a.iter() {
-            writer.write_sample((c.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)?;
-        }
-        for c in b.iter() {
+        for c in sample {
             writer.write_sample((c.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)?;
         }
         writer.finalize()?;
-        rc.commit_all();
         cursor.into_inner()
     };
     transcriber.transcribe(wav).await
@@ -61,8 +68,10 @@ async fn stop_recording(
     transcriptions: tauri::State<'_, Arc<Mutex<Vec<String>>>>,
 ) -> Result<String, VMTError> {
     stream.pause()?;
-    let tv = transcriptions.lock().expect("failed to lock mutex");
-    Ok(tv.join(""))
+    let mut tv = transcriptions.lock().expect("failed to lock mutex");
+    let t = tv.join(" ");
+    tv.clear();
+    Ok(t)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -110,28 +119,27 @@ pub fn run() {
 
             let frame_size = (FRAME_MS * (config.sample_rate as f32)) as usize;
             let transcriptions = Arc::new(Mutex::new(Vec::with_capacity(MIN_BUFSIZE)));
-            let tv1 = Arc::clone(&transcriptions);
+            let mut ac: Vec<f32> = Vec::with_capacity(MIN_BUFSIZE);
+            let tv_cloned = Arc::clone(&transcriptions);
             let config_cloned = config.clone();
             let cs_task_handle = spawn(async move {
                 let mut consumer = consumer;
                 loop {
                     if consumer.slots() < frame_size {
                         tokio::time::sleep(POLLING_INTERVAL).await;
-                    } else {
-                        match transcribe_frame(
-                            &config_cloned,
-                            frame_size,
-                            &mut consumer,
-                            &transcriber,
-                        )
-                        .await
-                        {
-                            Ok(transcription) => tv1
+                    } else if let Err(e) = read_rb(&mut ac, &mut consumer, frame_size) {
+                        eprintln!("Error reading from ring buffer: {}", e);
+                    } else if ac.len() > frame_size * FRAME_COUNT {
+                        match transcribe_frame(&config_cloned, &transcriber, &ac).await {
+                            Ok(transcription) => tv_cloned
                                 .lock()
                                 .expect("failed to lock mutex")
                                 .push(transcription),
                             Err(e) => eprintln!("Error transcribing frame: {}", e),
                         }
+                        ac.clear();
+                    } else {
+                        // Wait for more data in the sample for transcription
                     }
                 }
             });
