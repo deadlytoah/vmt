@@ -1,59 +1,16 @@
+mod consumer;
 mod error;
 mod transcribe;
 
 use crate::error::VMTError;
-use crate::transcribe::{Transcriber, WhisperService};
+use crate::transcribe::WhisperService;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::StreamError;
 use std::env;
-use std::io::Cursor;
-use tauri::{async_runtime::spawn, Emitter, Manager};
-use tokio::time::Duration;
+use tauri::{Emitter, Manager};
 
-const FRAME_MS: f32 = 0.02;
-const FRAME_COUNT: usize = 100;
 const MIN_BUFSIZE: usize = 1024 * 1024 * 4;
-const POLLING_INTERVAL: Duration = Duration::from_millis(20);
-
-fn cpal_config_to_hound(source: &cpal::StreamConfig) -> hound::WavSpec {
-    hound::WavSpec {
-        channels: source.channels,
-        sample_rate: source.sample_rate,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    }
-}
-
-fn read_rb(
-    ac: &mut Vec<f32>,
-    consumer: &mut rtrb::Consumer<f32>,
-    frame_size: usize,
-) -> Result<(), VMTError> {
-    let rc = consumer.read_chunk(frame_size)?;
-    let (a, b) = rc.as_slices();
-    ac.extend(a);
-    ac.extend(b);
-    rc.commit_all();
-    Ok(())
-}
-
-async fn transcribe_frame(
-    config: &cpal::StreamConfig,
-    transcriber: &WhisperService,
-    sample: &[f32],
-) -> Result<String, VMTError> {
-    let wav: Vec<u8> = {
-        let mut cursor = Cursor::new(Vec::with_capacity(MIN_BUFSIZE));
-        let mut writer = hound::WavWriter::new(&mut cursor, cpal_config_to_hound(config))?;
-        for c in sample {
-            writer.write_sample((c.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)?;
-        }
-        writer.finalize()?;
-        cursor.into_inner()
-    };
-    transcriber.transcribe(wav).await
-}
 
 #[tauri::command]
 fn start_recording(stream: tauri::State<'_, cpal::Stream>) -> Result<(), VMTError> {
@@ -116,61 +73,11 @@ pub fn run() {
             })?;
             let transcriber = WhisperService::new(&api_key);
 
-            let frame_size = (FRAME_MS * (config.sample_rate as f32)) as usize;
-            let mut ac: Vec<f32> = Vec::with_capacity(MIN_BUFSIZE);
-            let config_cloned = config.clone();
-            let (flush_tx, mut flush_rx) =
-                tokio::sync::mpsc::channel::<tokio::sync::oneshot::Sender<()>>(1);
             let app_handle = app.handle().clone();
-            let cs_task_handle = spawn(async move {
-                let mut consumer = consumer;
-                loop {
-                    if let Ok(reply_tx) = flush_rx.try_recv() {
-                        let frame_size = consumer.slots();
-                        if let Err(e) = read_rb(&mut ac, &mut consumer, frame_size) {
-                            eprintln!("Error reading from ring buffer: {}", e);
-                        } else if !ac.is_empty() {
-                            match transcribe_frame(&config_cloned, &transcriber, &ac).await {
-                                Ok(transcription) => {
-                                    let _ = app_handle
-                                        .emit("partial-transcript", transcription)
-                                        .inspect_err(|e| {
-                                            eprintln!("IPC error: {}", e);
-                                        });
-                                }
-                                Err(e) => eprintln!("Error transcribing frame: {}", e),
-                            }
-                            ac.clear();
-                        }
-                        let _ = reply_tx.send(());
-                    } else if consumer.slots() < frame_size {
-                        tokio::time::sleep(POLLING_INTERVAL).await;
-                    } else if let Err(e) = read_rb(&mut ac, &mut consumer, frame_size) {
-                        eprintln!("Error reading from ring buffer: {}", e);
-                    } else if ac.len() > frame_size * FRAME_COUNT {
-                        match transcribe_frame(&config_cloned, &transcriber, &ac).await {
-                            Ok(transcription) => {
-                                let _ = app_handle
-                                    .emit("partial-transcript", transcription)
-                                    .inspect_err(|e| {
-                                        eprintln!("IPC error: {}", e);
-                                    });
-                            }
-                            Err(e) => eprintln!("Error transcribing frame: {}", e),
-                        }
-                        ac.clear();
-                    } else {
-                        // Wait for more data in the sample for transcription
-                    }
-                }
-            });
+            let (flush_tx, flush_rx) =
+                tokio::sync::mpsc::channel::<tokio::sync::oneshot::Sender<()>>(1);
 
-            // Tie the lifecycle of the background consumer task to
-            // that of the app.
-            spawn(async move {
-                let _ = cs_task_handle.await;
-                std::process::exit(1);
-            });
+            consumer::run_loop(app_handle, consumer, config, flush_rx, transcriber);
 
             app.manage(stream);
             app.manage(flush_tx);
