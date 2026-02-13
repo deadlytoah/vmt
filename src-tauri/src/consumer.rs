@@ -50,6 +50,17 @@ async fn transcribe_frame(
     transcriber.transcribe(wav).await
 }
 
+async fn transcribe_and_emit(
+    app_handle: &tauri::AppHandle,
+    config: &cpal::StreamConfig,
+    transcriber: &WhisperService,
+    ac: &[f32],
+) -> Result<(), VMTError> {
+    let transcription = transcribe_frame(config, transcriber, ac).await?;
+    app_handle.emit("partial-transcript", transcription)?;
+    Ok(())
+}
+
 pub fn run_loop(
     app_handle: tauri::AppHandle,
     mut consumer: rtrb::Consumer<f32>,
@@ -66,15 +77,10 @@ pub fn run_loop(
                 if let Err(e) = read_rb(&mut ac, &mut consumer, flush_frame_size) {
                     eprintln!("Error reading from ring buffer: {}", e);
                 } else if !ac.is_empty() {
-                    match transcribe_frame(&config, &transcriber, &ac).await {
-                        Ok(transcription) => {
-                            let _ = app_handle
-                                .emit("partial-transcript", transcription)
-                                .inspect_err(|e| {
-                                    eprintln!("IPC error: {}", e);
-                                });
-                        }
-                        Err(e) => eprintln!("Error transcribing frame: {}", e),
+                    if let Err(e) =
+                        transcribe_and_emit(&app_handle, &config, &transcriber, &ac).await
+                    {
+                        eprintln!("Error while transcribing: {}", e);
                     }
                     ac.clear();
                 }
@@ -84,15 +90,8 @@ pub fn run_loop(
             } else if let Err(e) = read_rb(&mut ac, &mut consumer, frame_size) {
                 eprintln!("Error reading from ring buffer: {}", e);
             } else if ac.len() > frame_size * FRAME_COUNT {
-                match transcribe_frame(&config, &transcriber, &ac).await {
-                    Ok(transcription) => {
-                        let _ = app_handle
-                            .emit("partial-transcript", transcription)
-                            .inspect_err(|e| {
-                                eprintln!("IPC error: {}", e);
-                            });
-                    }
-                    Err(e) => eprintln!("Error transcribing frame: {}", e),
+                if let Err(e) = transcribe_and_emit(&app_handle, &config, &transcriber, &ac).await {
+                    eprintln!("Error while transcribing: {}", e);
                 }
                 ac.clear();
             } else {
