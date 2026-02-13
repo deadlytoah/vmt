@@ -19,11 +19,17 @@ function App() {
   }
 
   async function startRecording() {
-    await invoke("start_recording", {});
-    setInformation("Recording in progress.");
-    setTranscript("");
-    setIsRecording(true);
-    setTimer(setInterval(updateTick, 200, Date.now()));
+    try {
+      await invoke("start_recording", {});
+      setInformation("Recording in progress.");
+      setTranscript("");
+      setIsRecording(true);
+      setTimer(setInterval(updateTick, 200, Date.now()));
+    } catch (e: any) {
+      if ("PlayStream" in e) {
+        setError(`Error starting audio: ${e["PlayStream"]["message"]}`);
+      }
+    }
   }
 
   async function stopRecording() {
