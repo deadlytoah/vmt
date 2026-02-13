@@ -11,7 +11,7 @@
 - [x] On stop, flush remaining audio in ring buffer as a final chunk
 - [x] Use Tauri events as method of transferring events to the frontent
 - [x] Update transcript pane incrementally (append, not replace)
-- [ ] Update the frontend UI elements for auto-scroll
+- [x] Update the frontend UI elements for auto-scroll
 - [ ] Auto-scroll to latest text
 
 ## Stage 3: Energy-threshold VAD
