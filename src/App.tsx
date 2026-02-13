@@ -54,7 +54,7 @@ function App() {
     }
   }
 
-  function appendTranscript(partial) {
+  function appendTranscript(partial: string) {
     setTranscript(prev => prev === "" ? partial : prev + " " + partial);
   }
 
