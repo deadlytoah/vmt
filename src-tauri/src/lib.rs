@@ -1,3 +1,4 @@
+mod audio;
 mod consumer;
 mod error;
 mod transcribe;
@@ -6,9 +7,8 @@ use crate::error::VMTError;
 use crate::transcribe::WhisperService;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::StreamError;
 use std::env;
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 
 const MIN_BUFSIZE: usize = 1024 * 1024 * 4;
 
@@ -35,38 +35,14 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             let app_handle = app.handle().clone();
+            let (producer, consumer) = rtrb::RingBuffer::<f32>::new(MIN_BUFSIZE);
             let host = cpal::default_host();
             let device = host
                 .default_input_device()
                 .ok_or("no input devices found")?;
             let config = device.default_input_config()?.config();
-            let (mut producer, consumer) = rtrb::RingBuffer::<f32>::new(MIN_BUFSIZE);
-            let stream = device.build_input_stream(
-                &config,
-                move |data: &[f32], _: &cpal::InputCallbackInfo| match producer
-                    .write_chunk(data.len())
-                {
-                    Ok(mut wc) => {
-                        let (a, b) = wc.as_mut_slices();
-                        a.copy_from_slice(&data[..a.len()]);
-                        b.copy_from_slice(&data[a.len()..]);
-                        wc.commit_all();
-                    }
-                    Err(_) => {
-                        // TODO: add some visibility for this error
-                    }
-                },
-                move |err: StreamError| {
-                    let _ = app_handle
-                        .emit("recording-error", err.to_string())
-                        .inspect_err(|e| {
-                            eprintln!("{}", e);
-                        });
-                },
-                None,
-            )?;
-            // start with a paused stream
-            stream.pause()?;
+            let stream = audio::build_audio_pipeline(app_handle, device, config.clone(), producer)?;
+            app.manage(stream);
 
             let api_key = env::var("OPENAI_API_KEY").map_err(|_| VMTError::Transcript {
                 message: "API key not set in environment".into(),
@@ -79,7 +55,6 @@ pub fn run() {
 
             consumer::run_loop(app_handle, consumer, config, flush_rx, transcriber);
 
-            app.manage(stream);
             app.manage(flush_tx);
             Ok(())
         })
