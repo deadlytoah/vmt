@@ -8,7 +8,6 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::StreamError;
 use std::env;
 use std::io::Cursor;
-use std::sync::{Arc, Mutex};
 use tauri::{async_runtime::spawn, Emitter, Manager};
 use tokio::time::Duration;
 
@@ -64,19 +63,13 @@ fn start_recording(stream: tauri::State<'_, cpal::Stream>) -> Result<(), VMTErro
 
 #[tauri::command]
 async fn stop_recording(
-    app_handle: tauri::State<'_, tauri::AppHandle>,
     stream: tauri::State<'_, cpal::Stream>,
-    transcriptions: tauri::State<'_, Arc<Mutex<Vec<String>>>>,
     flush_tx: tauri::State<'_, tokio::sync::mpsc::Sender<tokio::sync::oneshot::Sender<()>>>,
 ) -> Result<(), VMTError> {
     stream.pause()?;
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
     let _ = flush_tx.send(reply_tx).await;
     let _ = reply_rx.await;
-    let mut tv = transcriptions.lock().expect("failed to lock mutex");
-    let t = tv.join(" ");
-    tv.clear();
-    app_handle.emit("transcription", t)?;
     Ok(())
 }
 
@@ -124,12 +117,11 @@ pub fn run() {
             let transcriber = WhisperService::new(&api_key);
 
             let frame_size = (FRAME_MS * (config.sample_rate as f32)) as usize;
-            let transcriptions = Arc::new(Mutex::new(Vec::with_capacity(MIN_BUFSIZE)));
             let mut ac: Vec<f32> = Vec::with_capacity(MIN_BUFSIZE);
-            let tv_cloned = Arc::clone(&transcriptions);
             let config_cloned = config.clone();
             let (flush_tx, mut flush_rx) =
                 tokio::sync::mpsc::channel::<tokio::sync::oneshot::Sender<()>>(1);
+            let app_handle = app.handle().clone();
             let cs_task_handle = spawn(async move {
                 let mut consumer = consumer;
                 loop {
@@ -139,10 +131,13 @@ pub fn run() {
                             eprintln!("Error reading from ring buffer: {}", e);
                         } else if !ac.is_empty() {
                             match transcribe_frame(&config_cloned, &transcriber, &ac).await {
-                                Ok(transcription) => tv_cloned
-                                    .lock()
-                                    .expect("failed to lock mutex")
-                                    .push(transcription),
+                                Ok(transcription) => {
+                                    let _ = app_handle
+                                        .emit("partial-transcript", transcription)
+                                        .inspect_err(|e| {
+                                            eprintln!("IPC error: {}", e);
+                                        });
+                                }
                                 Err(e) => eprintln!("Error transcribing frame: {}", e),
                             }
                             ac.clear();
@@ -154,10 +149,13 @@ pub fn run() {
                         eprintln!("Error reading from ring buffer: {}", e);
                     } else if ac.len() > frame_size * FRAME_COUNT {
                         match transcribe_frame(&config_cloned, &transcriber, &ac).await {
-                            Ok(transcription) => tv_cloned
-                                .lock()
-                                .expect("failed to lock mutex")
-                                .push(transcription),
+                            Ok(transcription) => {
+                                let _ = app_handle
+                                    .emit("partial-transcript", transcription)
+                                    .inspect_err(|e| {
+                                        eprintln!("IPC error: {}", e);
+                                    });
+                            }
                             Err(e) => eprintln!("Error transcribing frame: {}", e),
                         }
                         ac.clear();
@@ -174,9 +172,7 @@ pub fn run() {
                 std::process::exit(1);
             });
 
-            app.manage(app.handle().clone());
             app.manage(stream);
-            app.manage(transcriptions);
             app.manage(flush_tx);
             Ok(())
         })

@@ -59,7 +59,7 @@ function App() {
   }
 
   useEffect(() => {
-    const unlisten = listen<string>("transcription", (event) => {
+    const unlisten = listen<string>("partial-transcript", (event) => {
       appendTranscript(event.payload);
     });
     return () => { unlisten.then(f => f()); };
