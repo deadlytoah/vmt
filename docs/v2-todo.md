@@ -12,7 +12,7 @@
 - [x] Use Tauri events as method of transferring events to the frontent
 - [x] Update transcript pane incrementally (append, not replace)
 - [x] Update the frontend UI elements for auto-scroll
-- [ ] Auto-scroll to latest text
+- [x] Auto-scroll to latest text
 
 ## Stage 3: Energy-threshold VAD
 - [ ] Run mic for ~300ms during setup to capture ambient noise

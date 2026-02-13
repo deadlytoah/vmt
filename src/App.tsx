@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import "./App.css";
@@ -78,6 +78,14 @@ function App() {
     return () => { unlisten.then(f => f()); };
   }, []);
 
+  // Autoscrolling
+  const transcriptRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (transcriptRef.current) {
+      transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+    }
+  }, [transcript]);
+
   return (
     <main className="container">
       <form
@@ -96,7 +104,7 @@ function App() {
           <span className="elapsed">{elapsed}</span>
         </section>
       </form>
-      <section className="transcript-pane">
+      <section className="transcript-pane" ref={transcriptRef}>
         <p className="error">{error}</p>
         <p className="information">{information}</p>
         <p className="transcript-text">{transcript}</p>
