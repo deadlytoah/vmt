@@ -8,9 +8,10 @@
 - [x] Collect partial transcripts for display at the end of recording
 
 ## Stage 2: Streaming UI updates
-- [ ] Emit partial transcript to frontend via Tauri events as each chunk completes
 - [x] On stop, flush remaining audio in ring buffer as a final chunk
+- [x] Use Tauri events as method of transferring events to the frontent
 - [ ] Update transcript pane incrementally (append, not replace)
+- [ ] Update the frontend UI elements for auto-scroll
 - [ ] Auto-scroll to latest text
 
 ## Stage 3: Energy-threshold VAD

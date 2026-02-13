@@ -64,10 +64,11 @@ fn start_recording(stream: tauri::State<'_, cpal::Stream>) -> Result<(), VMTErro
 
 #[tauri::command]
 async fn stop_recording(
+    app_handle: tauri::State<'_, tauri::AppHandle>,
     stream: tauri::State<'_, cpal::Stream>,
     transcriptions: tauri::State<'_, Arc<Mutex<Vec<String>>>>,
     flush_tx: tauri::State<'_, tokio::sync::mpsc::Sender<tokio::sync::oneshot::Sender<()>>>,
-) -> Result<String, VMTError> {
+) -> Result<(), VMTError> {
     stream.pause()?;
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
     let _ = flush_tx.send(reply_tx).await;
@@ -75,7 +76,8 @@ async fn stop_recording(
     let mut tv = transcriptions.lock().expect("failed to lock mutex");
     let t = tv.join(" ");
     tv.clear();
-    Ok(t)
+    app_handle.emit("transcription", t)?;
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -131,7 +133,22 @@ pub fn run() {
             let cs_task_handle = spawn(async move {
                 let mut consumer = consumer;
                 loop {
-                    if consumer.slots() < frame_size {
+                    if let Ok(reply_tx) = flush_rx.try_recv() {
+                        let frame_size = consumer.slots();
+                        if let Err(e) = read_rb(&mut ac, &mut consumer, frame_size) {
+                            eprintln!("Error reading from ring buffer: {}", e);
+                        } else if !ac.is_empty() {
+                            match transcribe_frame(&config_cloned, &transcriber, &ac).await {
+                                Ok(transcription) => tv_cloned
+                                    .lock()
+                                    .expect("failed to lock mutex")
+                                    .push(transcription),
+                                Err(e) => eprintln!("Error transcribing frame: {}", e),
+                            }
+                            ac.clear();
+                        }
+                        let _ = reply_tx.send(());
+                    } else if consumer.slots() < frame_size {
                         tokio::time::sleep(POLLING_INTERVAL).await;
                     } else if let Err(e) = read_rb(&mut ac, &mut consumer, frame_size) {
                         eprintln!("Error reading from ring buffer: {}", e);
@@ -144,21 +161,6 @@ pub fn run() {
                             Err(e) => eprintln!("Error transcribing frame: {}", e),
                         }
                         ac.clear();
-                    } else if let Ok(reply_tx) = flush_rx.try_recv() {
-                        let frame_size = consumer.slots();
-                        if let Err(e) = read_rb(&mut ac, &mut consumer, frame_size) {
-                            eprintln!("Error reading from ring buffer: {}", e);
-                        } else {
-                            match transcribe_frame(&config_cloned, &transcriber, &ac).await {
-                                Ok(transcription) => tv_cloned
-                                    .lock()
-                                    .expect("failed to lock mutex")
-                                    .push(transcription),
-                                Err(e) => eprintln!("Error transcribing frame: {}", e),
-                            }
-                            ac.clear();
-                        }
-                        let _ = reply_tx.send(());
                     } else {
                         // Wait for more data in the sample for transcription
                     }
@@ -172,6 +174,7 @@ pub fn run() {
                 std::process::exit(1);
             });
 
+            app.manage(app.handle().clone());
             app.manage(stream);
             app.manage(transcriptions);
             app.manage(flush_tx);

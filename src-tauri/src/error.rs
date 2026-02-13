@@ -10,6 +10,8 @@ pub enum VMTError {
     Transcript { message: String },
     #[error("failed ring buffer chunk operation: {message}")]
     RtrbChunk { message: String },
+    #[error("tauri error: {message}")]
+    Tauri { message: String },
 }
 
 impl From<cpal::PlayStreamError> for VMTError {
@@ -47,6 +49,14 @@ impl From<reqwest::Error> for VMTError {
 impl From<rtrb::chunks::ChunkError> for VMTError {
     fn from(source: rtrb::chunks::ChunkError) -> Self {
         Self::RtrbChunk {
+            message: source.to_string(),
+        }
+    }
+}
+
+impl From<tauri::Error> for VMTError {
+    fn from(source: tauri::Error) -> Self {
+        Self::Tauri {
             message: source.to_string(),
         }
     }

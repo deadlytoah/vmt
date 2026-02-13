@@ -38,9 +38,8 @@ function App() {
     }
 
     setInformation("Transcript will appear when ready.");
-    setTranscript("");
     try {
-      setTranscript(await invoke("stop_recording", {}));
+      await invoke("stop_recording", {});
       resetUI();
     } catch (e: any) {
       if ("StopStream" in e) {
@@ -52,8 +51,19 @@ function App() {
         setError(`Transcription error: ${e["Transcript"]["message"]}`);
         resetUI();
       }
-    }      
+    }
   }
+
+  function appendTranscript(partial) {
+    setTranscript(prev => prev === "" ? partial : prev + " " + partial);
+  }
+
+  useEffect(() => {
+    const unlisten = listen<string>("transcription", (event) => {
+      appendTranscript(event.payload);
+    });
+    return () => { unlisten.then(f => f()); };
+  }, []);
 
   useEffect(() => {
     const unlisten = listen<string>("recording-error", (event) => {
