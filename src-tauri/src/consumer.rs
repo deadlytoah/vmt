@@ -27,8 +27,8 @@ impl VadState {
             VadState::Silence(count) => {
                 if count + 1 > FLUSH_THRESHOLD {
                     eprintln!("Too much silence");
-                    *self = VadState::MaybeFlush;
-                    true
+                    *self = VadState::Silence(1);
+                    false
                 } else {
                     *self = VadState::Silence(count + 1);
                     false
