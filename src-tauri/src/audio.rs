@@ -1,8 +1,15 @@
-use cpal::traits::{DeviceTrait, StreamTrait};
+use crate::consumer;
+use cpal::traits::DeviceTrait;
 use cpal::StreamError;
 use tauri::Emitter;
+use tokio::time::Duration;
 
 use crate::error::VMTError;
+
+const ALPHA: f32 = 0.05;
+const THRESHOLD_RATE: f32 = 2.0;
+const CALIBRATION_FRAME_SIZE: usize = (0.3 * 48000f32) as usize;
+const CALIBRATION_DURATION: Duration = Duration::from_millis(300);
 
 pub fn build_audio_pipeline(
     app_handle: tauri::AppHandle,
@@ -32,7 +39,21 @@ pub fn build_audio_pipeline(
         },
         None,
     )?;
-    // start with a paused stream
-    stream.pause()?;
     Ok(stream)
+}
+
+fn rms(samples: &[f32]) -> f32 {
+    let sum = samples.iter().map(|f| f * f).sum::<f32>();
+    let mean = sum / (samples.len() as f32);
+    mean.sqrt()
+}
+
+pub fn calibrate(consumer: &mut rtrb::Consumer<f32>) -> Result<f32, VMTError> {
+    // capture ambient noise to use as calibration samples
+    std::thread::sleep(CALIBRATION_DURATION);
+    let mut buffer = Vec::with_capacity(CALIBRATION_FRAME_SIZE);
+    let slots = consumer.slots();
+    consumer::read_rb(&mut buffer, consumer, slots)?;
+    let seed = rms(&buffer);
+    Ok(seed)
 }

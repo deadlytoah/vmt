@@ -15,10 +15,6 @@
 - [x] Auto-scroll to latest text
 
 ## Stage 3: Energy-threshold VAD
-- [ ] Run mic for ~300ms during setup to capture ambient noise
-- [ ] Read calibration samples directly from consumer before managing it as state
-- [ ] Seed noise floor from calibration samples
-- [ ] Implement RMS energy computation per frame
-- [ ] Implement adaptive noise floor (EMA, updates only during silence)
-- [ ] Implement hangover timer (200–500ms silence before cutting)
-- [ ] Switch chunk flushing from fixed interval to hangover expiry
+- [x] Calibrate noise floor from ~300ms of mic input during setup
+- [ ] Compute per-frame RMS energy with adaptive noise floor (EMA)
+- [ ] Add hangover timer and switch chunk flushing from fixed interval to silence detection

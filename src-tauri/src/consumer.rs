@@ -20,7 +20,7 @@ fn cpal_config_to_hound(source: &cpal::StreamConfig) -> hound::WavSpec {
     }
 }
 
-fn read_rb(
+pub fn read_rb(
     ac: &mut Vec<f32>,
     consumer: &mut rtrb::Consumer<f32>,
     frame_size: usize,
@@ -29,6 +29,13 @@ fn read_rb(
     let (a, b) = rc.as_slices();
     ac.extend(a);
     ac.extend(b);
+    rc.commit_all();
+    Ok(())
+}
+
+pub fn clear_rb(consumer: &mut rtrb::Consumer<f32>) -> Result<(), VMTError> {
+    let slots = consumer.slots();
+    let rc = consumer.read_chunk(slots)?;
     rc.commit_all();
     Ok(())
 }
@@ -67,6 +74,7 @@ pub fn run_loop(
     config: cpal::StreamConfig,
     mut flush_rx: tokio::sync::mpsc::Receiver<tokio::sync::oneshot::Sender<()>>,
     transcriber: WhisperService,
+    seed: f32,
 ) {
     let frame_size = (FRAME_MS * (config.sample_rate as f32)) as usize;
     let mut ac: Vec<f32> = Vec::with_capacity(MIN_BUFSIZE);

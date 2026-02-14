@@ -35,13 +35,19 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             let app_handle = app.handle().clone();
-            let (producer, consumer) = rtrb::RingBuffer::<f32>::new(MIN_BUFSIZE);
+            let (producer, mut consumer) = rtrb::RingBuffer::<f32>::new(MIN_BUFSIZE);
             let host = cpal::default_host();
             let device = host
                 .default_input_device()
                 .ok_or("no input devices found")?;
             let config = device.default_input_config()?.config();
+
             let stream = audio::build_audio_pipeline(app_handle, device, config.clone(), producer)?;
+            let seed = audio::calibrate(&mut consumer)?;
+            // start with paused stream
+            stream.pause()?;
+            consumer::clear_rb(&mut consumer)?;
+
             app.manage(stream);
 
             let api_key = env::var("OPENAI_API_KEY").map_err(|_| VMTError::Transcript {
@@ -53,7 +59,7 @@ pub fn run() {
             let (flush_tx, flush_rx) =
                 tokio::sync::mpsc::channel::<tokio::sync::oneshot::Sender<()>>(1);
 
-            consumer::run_loop(app_handle, consumer, config, flush_rx, transcriber);
+            consumer::run_loop(app_handle, consumer, config, flush_rx, transcriber, seed);
 
             app.manage(flush_tx);
             Ok(())
