@@ -6,8 +6,8 @@ use tokio::time::Duration;
 
 use crate::error::VMTError;
 
-const ALPHA: f32 = 0.01;
-const THRESHOLD_RATE: f32 = 3.0;
+const ALPHA: f32 = 0.001;
+const THRESHOLD_RATE: f32 = 5.0;
 const CALIBRATION_FRAME_SIZE: usize = (0.3 * 48000f32) as usize;
 const CALIBRATION_DURATION: Duration = Duration::from_millis(1000);
 

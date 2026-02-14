@@ -48,9 +48,9 @@ as speech or silence via adaptive energy-threshold VAD:
     if !is_speech:
         noise_floor = α × rms + (1 − α) × noise_floor
 
-Parameters: **α** (EMA smoothing, e.g. 0.05), **threshold_ratio**
-(speech multiplier, e.g. 2.0). Noise floor seeded from ~300 ms mic
-capture at startup. Frames accumulate locally; a hangover timer
+Parameters: **α** (EMA smoothing, 0.001), **threshold_ratio**
+(speech multiplier, 5.0). Noise floor seeded from ~1 s mic capture
+at startup. Frames accumulate locally; a hangover timer
 (200–500 ms silence) triggers a flush for transcription. The consumer
 runs as a `tokio::spawn` task whose lifecycle is tied to the app — if
 it exits for any reason (success, error, or panic), the app

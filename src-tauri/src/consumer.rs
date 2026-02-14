@@ -10,7 +10,7 @@ use tokio::time::Duration;
 
 const SILENCE_THRESHOLD: usize = 10;
 const FLUSH_THRESHOLD: usize = 250;
-const FRAME_COUNT: usize = 100;
+const FRAME_COUNT: usize = 150;
 const FRAME_MS: f32 = 0.02;
 const POLLING_INTERVAL: Duration = Duration::from_millis(20);
 
