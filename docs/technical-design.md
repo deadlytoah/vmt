@@ -72,8 +72,6 @@ frontend listens and appends text incrementally.
 ### Deferred to Post-V2
 - **Resample to 16 kHz before sending to Whisper** — device sample rates vary across platforms (44.1/48 kHz typical). Whisper operates at 16 kHz internally, so native-rate audio is ~3× the payload for zero quality benefit. Resampling in the consumer also normalises frame math (`FRAME_SIZE = 320` = 20 ms).
 - **Latch-up prevention** — slow unconditional noise floor decay during speech frames. V2 targets quiet-room use where latch-up is unlikely.
-- **Max speech duration cap** — force noise floor recalibration after ~30s continuous speech. Related to latch-up; defer together.
-- **Minimum chunk size policy** — natural speech pauses produce reasonable chunks; revisit if short utterances cause excessive API calls.
 - **Prompt conditioning** — pass previous transcript tail as Whisper's `prompt` parameter (max 224 tokens) for cross-chunk continuity. Optimization, not required for core streaming.
 
 ### Risks
