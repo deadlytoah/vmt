@@ -16,5 +16,5 @@
 
 ## Stage 3: Energy-threshold VAD
 - [x] Calibrate noise floor from ~300ms of mic input during setup
-- [ ] Compute per-frame RMS energy with adaptive noise floor (EMA)
-- [ ] Add hangover timer and switch chunk flushing from fixed interval to silence detection
+- [x] Compute per-frame RMS energy with adaptive noise floor (EMA)
+- [x] Add hangover timer and switch chunk flushing from fixed interval to silence detection

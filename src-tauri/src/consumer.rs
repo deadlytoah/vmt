@@ -1,5 +1,6 @@
 use tauri::async_runtime::spawn;
 
+use crate::audio;
 use crate::error::VMTError;
 use crate::transcribe::{Transcriber, WhisperService};
 use crate::MIN_BUFSIZE;
@@ -7,9 +8,72 @@ use std::io::Cursor;
 use tauri::Emitter;
 use tokio::time::Duration;
 
-const FRAME_COUNT: usize = 100;
+const SILENCE_THRESHOLD: usize = 10;
+const FLUSH_THRESHOLD: usize = 250;
 const FRAME_MS: f32 = 0.02;
 const POLLING_INTERVAL: Duration = Duration::from_millis(20);
+
+enum VadState {
+    Silence(usize),
+    Speech(usize),
+    MaybeSilence(usize),
+}
+
+impl VadState {
+    fn silence(&mut self) -> bool {
+        match *self {
+            VadState::Silence(count) => {
+                if count + 1 > FLUSH_THRESHOLD {
+                    eprintln!("Too much silence");
+                    *self = VadState::Silence(1);
+                    true
+                } else {
+                    *self = VadState::Silence(count + 1);
+                    false
+                }
+            }
+            VadState::Speech(_) => {
+                *self = VadState::MaybeSilence(1);
+                false
+            }
+            VadState::MaybeSilence(count) => {
+                if count + 1 < SILENCE_THRESHOLD {
+                    *self = VadState::MaybeSilence(count + 1);
+                    false
+                } else {
+                    eprintln!("Legit silence");
+                    *self = VadState::Silence(1);
+                    true
+                }
+            }
+        }
+    }
+
+    fn speech(&mut self) -> bool {
+        match *self {
+            VadState::Silence(_) => {
+                eprintln!("Silence broke");
+                *self = VadState::Speech(1);
+                false
+            }
+            VadState::Speech(count) => {
+                if count + 1 > FLUSH_THRESHOLD {
+                    eprintln!("Speech too long");
+                    *self = VadState::Speech(1);
+                    true
+                } else {
+                    *self = VadState::Speech(count + 1);
+                    false
+                }
+            }
+            VadState::MaybeSilence(_) => {
+                eprintln!("Maybe silence?");
+                *self = VadState::Speech(1);
+                false
+            }
+        }
+    }
+}
 
 fn cpal_config_to_hound(source: &cpal::StreamConfig) -> hound::WavSpec {
     hound::WavSpec {
@@ -74,11 +138,12 @@ pub fn run_loop(
     config: cpal::StreamConfig,
     mut flush_rx: tokio::sync::mpsc::Receiver<tokio::sync::oneshot::Sender<()>>,
     transcriber: WhisperService,
-    seed: f32,
+    mut noise_floor: f32,
 ) {
     let frame_size = (FRAME_MS * (config.sample_rate as f32)) as usize;
     let mut ac: Vec<f32> = Vec::with_capacity(MIN_BUFSIZE);
     let cs_task_handle = spawn(async move {
+        let mut vad_state = VadState::Silence(0);
         loop {
             if let Ok(reply_tx) = flush_rx.try_recv() {
                 let flush_frame_size = consumer.slots();
@@ -97,13 +162,26 @@ pub fn run_loop(
                 tokio::time::sleep(POLLING_INTERVAL).await;
             } else if let Err(e) = read_rb(&mut ac, &mut consumer, frame_size) {
                 eprintln!("Error reading from ring buffer: {}", e);
-            } else if ac.len() > frame_size * FRAME_COUNT {
-                if let Err(e) = transcribe_and_emit(&app_handle, &config, &transcriber, &ac).await {
-                    eprintln!("Error while transcribing: {}", e);
-                }
-                ac.clear();
             } else {
-                // Wait for more data in the sample for transcription
+                let frame_index = ac.len() - frame_size;
+                let frame = &ac[frame_index..];
+                let rms = audio::rms(frame);
+
+                let flush = if audio::is_silence(noise_floor, rms) {
+                    noise_floor = audio::update_noise_floor(noise_floor, rms);
+                    vad_state.silence()
+                } else {
+                    vad_state.speech()
+                };
+
+                if flush {
+                    if let Err(e) =
+                        transcribe_and_emit(&app_handle, &config, &transcriber, &ac).await
+                    {
+                        eprintln!("Error while transcribing: {}", e);
+                    }
+                    ac.clear();
+                }
             }
         }
     });

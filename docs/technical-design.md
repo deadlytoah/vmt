@@ -40,14 +40,22 @@ the other. Wait-free and zero-alloc on the hot path.
 **2. Frame-aligned consumer with energy-threshold VAD**
 Consumer polls the ring buffer in a loop, sleeping briefly when empty
 to avoid starving the tokio thread pool. It reads `frame_size` samples
-at a time and commits each frame immediately. Adaptive RMS classifies each
-frame as speech or silence. Frames accumulate locally; a hangover
-timer (200–500 ms silence) triggers a flush for transcription. Noise
-floor seeded via ~300 ms mic capture at startup. Pure Rust, zero
-dependencies. The consumer runs as a `tokio::spawn` task whose
-lifecycle is tied to the app — if it exits for any reason (success,
-error, or panic), the app terminates. The consumer must run for the
-app's entire lifetime; early exit indicates a logic bug or fatal error.
+at a time and commits each frame immediately. Each frame is classified
+as speech or silence via adaptive energy-threshold VAD:
+
+    rms           = sqrt(mean(sample² for sample in frame))
+    is_speech     = rms > noise_floor × threshold_ratio
+    if !is_speech:
+        noise_floor = α × rms + (1 − α) × noise_floor
+
+Parameters: **α** (EMA smoothing, e.g. 0.05), **threshold_ratio**
+(speech multiplier, e.g. 2.0). Noise floor seeded from ~300 ms mic
+capture at startup. Frames accumulate locally; a hangover timer
+(200–500 ms silence) triggers a flush for transcription. The consumer
+runs as a `tokio::spawn` task whose lifecycle is tied to the app — if
+it exits for any reason (success, error, or panic), the app
+terminates. The consumer must run for the app's entire lifetime; early
+exit indicates a logic bug or fatal error.
 
 **3. Tauri event streaming**
 Each chunk's transcript is emitted as a Tauri event
