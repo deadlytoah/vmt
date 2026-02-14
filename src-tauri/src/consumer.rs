@@ -10,6 +10,7 @@ use tokio::time::Duration;
 
 const SILENCE_THRESHOLD: usize = 10;
 const FLUSH_THRESHOLD: usize = 250;
+const FRAME_COUNT: usize = 100;
 const FRAME_MS: f32 = 0.02;
 const POLLING_INTERVAL: Duration = Duration::from_millis(20);
 
@@ -17,6 +18,7 @@ enum VadState {
     Silence(usize),
     Speech(usize),
     MaybeSilence(usize),
+    MaybeFlush,
 }
 
 impl VadState {
@@ -25,7 +27,7 @@ impl VadState {
             VadState::Silence(count) => {
                 if count + 1 > FLUSH_THRESHOLD {
                     eprintln!("Too much silence");
-                    *self = VadState::Silence(1);
+                    *self = VadState::MaybeFlush;
                     true
                 } else {
                     *self = VadState::Silence(count + 1);
@@ -41,11 +43,12 @@ impl VadState {
                     *self = VadState::MaybeSilence(count + 1);
                     false
                 } else {
-                    eprintln!("Legit silence");
-                    *self = VadState::Silence(1);
+                    eprintln!("Legit silence - maybe flush");
+                    *self = VadState::MaybeFlush;
                     true
                 }
             }
+            _ => panic!("invalid state transition"),
         }
     }
 
@@ -59,7 +62,7 @@ impl VadState {
             VadState::Speech(count) => {
                 if count + 1 > FLUSH_THRESHOLD {
                     eprintln!("Speech too long");
-                    *self = VadState::Speech(1);
+                    *self = VadState::MaybeFlush;
                     true
                 } else {
                     *self = VadState::Speech(count + 1);
@@ -71,6 +74,25 @@ impl VadState {
                 *self = VadState::Speech(1);
                 false
             }
+            _ => panic!("invalid state transition"),
+        }
+    }
+
+    fn flush(&mut self) {
+        if let VadState::MaybeFlush = *self {
+            eprintln!("flush");
+            *self = VadState::Silence(1);
+        } else {
+            panic!("invalid state transition");
+        }
+    }
+
+    fn no_flush(&mut self) {
+        if let VadState::MaybeFlush = *self {
+            eprintln!("no flush");
+            *self = VadState::MaybeSilence(1);
+        } else {
+            panic!("invalid state transition");
         }
     }
 }
@@ -174,13 +196,16 @@ pub fn run_loop(
                     vad_state.speech()
                 };
 
-                if flush {
+                if flush && ac.len() > frame_size * FRAME_COUNT {
+                    vad_state.flush();
                     if let Err(e) =
                         transcribe_and_emit(&app_handle, &config, &transcriber, &ac).await
                     {
                         eprintln!("Error while transcribing: {}", e);
                     }
                     ac.clear();
+                } else if flush {
+                    vad_state.no_flush();
                 }
             }
         }
